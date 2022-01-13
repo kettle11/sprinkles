@@ -1,0 +1,118 @@
+<html>
+
+<body style="margin:0; overflow-y: hidden;overflow-x: hidden;">
+    <canvas id="my_canvas" style="width:100vw; height: 100vh;"></canvas>
+    <script>
+        let canvas = document.getElementById("my_canvas");
+        let gl = canvas.getContext("webgl");
+
+        gl.canvas.width = canvas.clientWidth;
+        gl.canvas.height = canvas.clientHeight;
+        gl.viewport(0, 0, canvas.clientWidth, canvas.clientHeight);
+
+        // Declare our shader program
+        let vertex_shader = gl.createShader(gl.VERTEX_SHADER);
+        gl.shaderSource(vertex_shader, `
+        
+            attribute vec2 vertex_position;
+            void main(void) {
+                gl_Position = vec4(vertex_position, 0.0, 1.0);
+            }
+        `);
+        gl.compileShader(vertex_shader);
+
+        let fragment_shader = gl.createShader(gl.FRAGMENT_SHADER);
+        gl.shaderSource(fragment_shader, `
+            precision mediump float;
+            uniform vec4 color;
+            void main() {
+                gl_FragColor = color;
+            }
+        `);
+        gl.compileShader(fragment_shader);
+
+        let program = gl.createProgram();
+        gl.attachShader(program, vertex_shader);
+        gl.attachShader(program, fragment_shader);
+        gl.linkProgram(program);
+
+        let position_attribute_location = gl.getAttribLocation(program, "vertex_position");
+        gl.enableVertexAttribArray(position_attribute_location);
+
+        let color_uniform_location = gl.getUniformLocation(program, "color");
+
+        let imports = {
+            env: {
+                log_number: function (number) { console.log("Number from Rust: ", number); },
+                js_clear_screen_to_color: function (red, green, blue, alpha) {
+                    gl.clearColor(red, green, blue, alpha);
+                    gl.clear(gl.COLOR_BUFFER_BIT);
+                },
+                js_draw_rectangle: function (x, y, width, height, red, green, blue, alpha) {
+                    let data_buffer = gl.createBuffer();
+                    gl.bindBuffer(gl.ARRAY_BUFFER, data_buffer);
+
+                    function adjust_pos(size, pos) {
+                        return (pos / size) * 2.0 - 1.0;
+                    }
+                    gl.bufferData(
+                        gl.ARRAY_BUFFER,
+                        new Float32Array([
+                            adjust_pos(gl.canvas.width, x), adjust_pos(gl.canvas.height, y),
+                            adjust_pos(gl.canvas.width, x + width), adjust_pos(gl.canvas.height, y),
+                            adjust_pos(gl.canvas.width, x + width), adjust_pos(gl.canvas.height, y + height),
+                            adjust_pos(gl.canvas.width, x), adjust_pos(gl.canvas.height, y + height)
+                        ]),
+                        gl.STATIC_DRAW);
+
+                    gl.vertexAttribPointer(
+                        position_attribute_location,
+                        2,          // How many numbers are in each value of our data. In our case it's 2 because we're passing in 2D coordinates as vec2.
+                        gl.FLOAT,   // What type of numbers are used our data
+                        false, 0, 0 // These aren't important to understand now.
+                    );
+
+                    gl.useProgram(program);
+                    gl.uniform4f(color_uniform_location, red, green, blue, alpha);
+                    gl.drawArrays(gl.TRIANGLE_FAN, 0, 4);
+                    // gl.deleteBuffer(data_buffer);
+                }
+            }
+        };
+
+        WebAssembly.instantiateStreaming(fetch('target/wasm32-unknown-unknown/debug/examples/game.wasm'), imports).then(function (result) {
+            result.instance.exports.main();
+
+            document.onkeydown = function (event) {
+                let code = 0;
+                switch (event.code) {
+                    case "ArrowLeft":
+                        code = 1;
+                        break;
+                    case "ArrowRight":
+                        code = 2;
+                        break;
+                    case "ArrowUp":
+                        code = 3;
+                        break;
+                    case "ArrowDown":
+                        code = 4;
+                        break;
+                    case "Space":
+                        code = 5;
+                        break;
+                }
+
+                result.instance.exports.key_pressed(code);
+            };
+
+            function animate() {
+                result.instance.exports.animate();
+                requestAnimationFrame(animate);
+            }
+            animate();
+        });
+    </script>
+</body>
+
+</html>
